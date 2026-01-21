@@ -124,6 +124,8 @@
             const [selectedPosition, setSelectedPosition] = useState('bottom');
             const [showMoveModal, setShowMoveModal] = useState(false);
             const [palletToMove, setPalletToMove] = useState(null);
+            const [showMoveStackModal, setShowMoveStackModal] = useState(false);
+            const [stackToMove, setStackToMove] = useState(null);
             const [selectedStackView, setSelectedStackView] = useState(null);
             const [isLoading, setIsLoading] = useState(true);
             const [lastSync, setLastSync] = useState(null);
@@ -349,6 +351,63 @@
                 }
             };
 
+            const moveEntireStack = (fromStackId, toStackId) => {
+                const fromStack = stacks.find(s => s.id === fromStackId);
+                const toStack = stacks.find(s => s.id === toStackId);
+                
+                // Check if destination has enough room
+                const totalPallets = fromStack.pallets.length + toStack.pallets.length;
+                if (totalPallets > 3) {
+                    alert(`Cannot move stack: Destination would have ${totalPallets} pallets (max 3)`);
+                    return;
+                }
+
+                const updatedStacks = stacks.map(s => {
+                    if (s.id === fromStackId) {
+                        return { ...s, pallets: [] };
+                    }
+                    if (s.id === toStackId) {
+                        return { ...s, pallets: [...s.pallets, ...fromStack.pallets] };
+                    }
+                    return s;
+                });
+                
+                setStacks(updatedStacks);
+                setShowMoveStackModal(false);
+                setStackToMove(null);
+                setSelectedStackView(null);
+            };
+
+            const moveStack = (fromStackId, toStackId) => {
+                const fromStack = stacks.find(s => s.id === fromStackId);
+                const toStack = stacks.find(s => s.id === toStackId);
+                
+                if (toStack.pallets.length > 0) {
+                    alert('Destination stack must be empty to move entire stack');
+                    return;
+                }
+                
+                if (fromStack.pallets.length === 0) {
+                    alert('Source stack is empty - nothing to move');
+                    return;
+                }
+
+                const updatedStacks = stacks.map(s => {
+                    if (s.id === fromStackId) {
+                        return { ...s, pallets: [] };
+                    }
+                    if (s.id === toStackId) {
+                        return { ...s, pallets: [...fromStack.pallets] };
+                    }
+                    return s;
+                });
+                
+                setStacks(updatedStacks);
+                setShowMoveStackModal(false);
+                setStackToMove(null);
+                setSelectedStackView(null);
+            };
+
             const getStackColor = (stack) => {
                 if (stack.isBlocked) return 'bg-red-100 border-red-400';
                 const count = stack.pallets.length;
@@ -532,11 +591,11 @@
                                                             {stack.pallets.map((pallet, idx) => (
                                                                 <div
                                                                     key={pallet.id}
-                                                                    className="bg-blue-500 rounded-sm h-3.5 flex items-center justify-center cursor-pointer hover:bg-blue-600 px-0.5"
+                                                                    className="bg-blue-500 rounded-sm h-4 flex items-center justify-center cursor-pointer hover:bg-blue-600 px-0.5"
                                                                     title={`${getStackPosition(idx, stack.pallets.length)}: ${pallet.content}`}
                                                                     onClick={() => setSelectedStackView(stack)}
                                                                 >
-                                                                    <span className="text-[7px] text-white font-bold truncate w-full text-center">
+                                                                    <span className="text-[8px] text-white font-bold truncate w-full text-center">
                                                                         {pallet.content.substring(0, 7)}
                                                                     </span>
                                                                 </div>
@@ -750,6 +809,19 @@
                                     </button>
                                 )}
 
+                                {selectedStackView.pallets.length > 0 && (
+                                    <button
+                                        onClick={() => {
+                                            setStackToMove(selectedStackView.id);
+                                            setShowMoveStackModal(true);
+                                        }}
+                                        className="w-full mt-3 bg-purple-600 hover:bg-purple-700 text-white py-3 rounded-lg flex items-center justify-center gap-2 transition-colors font-semibold"
+                                    >
+                                        <ArrowRight size={20} />
+                                        Move Entire Stack ({selectedStackView.pallets.length} pallets)
+                                    </button>
+                                )}
+
                                 <button
                                     onClick={() => toggleBlock(selectedStackView.id)}
                                     className={`w-full mt-3 py-3 rounded-lg flex items-center justify-center gap-2 transition-colors font-semibold ${
@@ -893,6 +965,95 @@
                                         onClick={() => {
                                             setShowMoveModal(false);
                                             setPalletToMove(null);
+                                        }}
+                                        className="w-full bg-slate-200 hover:bg-slate-300 text-slate-800 py-2 rounded font-medium transition-colors"
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Move Stack Modal */}
+                    {showMoveStackModal && stackToMove && (
+                        <div 
+                            className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[60]"
+                            onClick={() => {
+                                setShowMoveStackModal(false);
+                                setStackToMove(null);
+                            }}
+                        >
+                            <div 
+                                className="bg-white rounded-lg w-full max-w-6xl max-h-[90vh] flex flex-col"
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                <div className="flex justify-between items-center p-6 border-b border-slate-200 flex-shrink-0">
+                                    <div>
+                                        <h2 className="text-xl font-bold text-slate-800">
+                                            Move Entire Stack: {stacks.find(s => s.id === stackToMove)?.name}
+                                        </h2>
+                                        <p className="text-sm text-slate-600 mt-1">
+                                            Moving {stacks.find(s => s.id === stackToMove)?.pallets.length} pallets • Select destination with enough space
+                                        </p>
+                                    </div>
+                                    <button
+                                        onClick={() => {
+                                            setShowMoveStackModal(false);
+                                            setStackToMove(null);
+                                        }}
+                                        className="text-slate-500 hover:text-slate-700 text-3xl leading-none font-bold"
+                                    >
+                                        ×
+                                    </button>
+                                </div>
+                                
+                                <div className="overflow-y-auto flex-1 p-6">
+                                    <div className="grid grid-cols-6 gap-2">
+                                        {(() => {
+                                            const sourceStack = stacks.find(s => s.id === stackToMove);
+                                            const sourcePalletCount = sourceStack?.pallets.length || 0;
+                                            return stacks.filter(s => {
+                                                const hasRoom = (s.pallets.length + sourcePalletCount) <= 3;
+                                                return hasRoom && s.id !== stackToMove && !s.isBlocked;
+                                            }).map(stack => (
+                                                <button
+                                                    key={stack.id}
+                                                    onClick={() => moveEntireStack(stackToMove, stack.id)}
+                                                    className="bg-slate-100 hover:bg-purple-50 border-2 border-slate-300 hover:border-purple-400 p-3 rounded transition-all text-left"
+                                                >
+                                                    <div className="font-bold text-slate-700 text-sm">{stack.name}</div>
+                                                    <div className="text-xs text-slate-500 mt-1">
+                                                        Row {stack.row}, Col {stack.col}
+                                                    </div>
+                                                    <div className="text-xs text-green-600 font-semibold mt-1">
+                                                        {stack.pallets.length === 0 ? '✓ Empty' : `${stack.pallets.length} pallets → ${stack.pallets.length + sourcePalletCount} total`}
+                                                    </div>
+                                                </button>
+                                            ));
+                                        })()}
+                                    </div>
+                                    {(() => {
+                                        const sourceStack = stacks.find(s => s.id === stackToMove);
+                                        const sourcePalletCount = sourceStack?.pallets.length || 0;
+                                        const availableStacks = stacks.filter(s => {
+                                            const hasRoom = (s.pallets.length + sourcePalletCount) <= 3;
+                                            return hasRoom && s.id !== stackToMove && !s.isBlocked;
+                                        });
+                                        return availableStacks.length === 0 ? (
+                                            <div className="text-center py-12">
+                                                <p className="text-slate-500 mb-2">No stacks with enough space available</p>
+                                                <p className="text-sm text-slate-400">Need a stack with room for {sourcePalletCount} more pallets</p>
+                                            </div>
+                                        ) : null;
+                                    })()}
+                                </div>
+                                
+                                <div className="p-4 border-t border-slate-200 flex-shrink-0">
+                                    <button
+                                        onClick={() => {
+                                            setShowMoveStackModal(false);
+                                            setStackToMove(null);
                                         }}
                                         className="w-full bg-slate-200 hover:bg-slate-300 text-slate-800 py-2 rounded font-medium transition-colors"
                                     >
