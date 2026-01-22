@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Warehouse Pallet Tracker - Dual Layout</title>
+    <title>Warehouse Pallet Tracker - Google Sheets Sync</title>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -22,6 +22,7 @@
 
     <script>
         // REPLACE THIS URL WITH YOUR GOOGLE APPS SCRIPT WEB APP URL
+        // Instructions: See GOOGLE-SHEETS-SETUP.md file
         const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxmCo0hgn9EUcTDNOn6fKIExckbhgRvbwoZlyXlhxVVogTJjmIQAhuO9XY5SVaWcWYkNw/exec';
     </script>
 
@@ -99,71 +100,23 @@
         );
 
         function WarehousePalletTracker() {
-            // Layout state
-            const [currentLayout, setCurrentLayout] = useState('GTR');
+            const COLS = 20;
+            const ROWS = 10;
             
-            // Initialize GTR Warehouse (20 rows × 10 positions)
-            const initGTRStacks = () => {
-                const stacks = [];
-                for (let row = 1; row <= 20; row++) {
-                    for (let pos = 1; pos <= 10; pos++) {
-                        stacks.push({
-                            id: `GTR-R${row}-P${pos}`,
-                            name: `R${row}-C${pos}`,
-                            row,
-                            pos,
-                            layout: 'GTR',
-                            pallets: [],
-                            isBlocked: false
-                        });
-                    }
-                }
-                return stacks;
-            };
-            
-            // Initialize Heritage Left Section (20 rows × 6 positions)
-            const initHeritageLeft = () => {
-                const stacks = [];
-                for (let row = 1; row <= 20; row++) {
-                    for (let pos = 1; pos <= 6; pos++) {
-                        stacks.push({
-                            id: `HL-R${row}-P${pos}`,
-                            name: `Left-R${row}-P${pos}`,
-                            row,
-                            pos,
-                            layout: 'Heritage',
-                            section: 'Left',
-                            pallets: [],
-                            isBlocked: false
-                        });
-                    }
-                }
-                return stacks;
-            };
-            
-            // Initialize Heritage Right Section (31 rows × 8 positions)
-            const initHeritageRight = () => {
-                const stacks = [];
-                for (let row = 1; row <= 31; row++) {
-                    for (let pos = 1; pos <= 8; pos++) {
-                        stacks.push({
-                            id: `HR-R${row}-P${pos}`,
-                            name: `Right-R${row}-P${pos}`,
-                            row,
-                            pos,
-                            layout: 'Heritage',
-                            section: 'Right',
-                            pallets: [],
-                            isBlocked: false
-                        });
-                    }
-                }
-                return stacks;
-            };
-            
-            const [stacksGTR, setStacksGTR] = useState(initGTRStacks());
-            const [stacksHeritageLeft, setStacksHeritageLeft] = useState(initHeritageLeft());
-            const [stacksHeritageRight, setStacksHeritageRight] = useState(initHeritageRight());
+            const [stacks, setStacks] = useState(
+                Array(ROWS * COLS).fill(null).map((_, i) => {
+                    const row = Math.floor(i / COLS) + 1;
+                    const col = i % COLS + 1;
+                    return {
+                        id: i + 1,
+                        name: `R${row}-C${col}`,
+                        row,
+                        col,
+                        pallets: [],
+                        isBlocked: false
+                    };
+                })
+            );
             
             const [showAddModal, setShowAddModal] = useState(false);
             const [selectedStack, setSelectedStack] = useState(null);
@@ -183,25 +136,6 @@
             const isUpdatingFromSheet = useRef(false);
             const syncIntervalRef = useRef(null);
 
-            // Get current stacks based on layout
-            const getCurrentStacks = () => {
-                if (currentLayout === 'GTR') return stacksGTR;
-                return [...stacksHeritageLeft, ...stacksHeritageRight];
-            };
-            
-            const setCurrentStacks = (newStacks) => {
-                if (currentLayout === 'GTR') {
-                    setStacksGTR(newStacks);
-                } else {
-                    const leftStacks = newStacks.filter(s => s.section === 'Left');
-                    const rightStacks = newStacks.filter(s => s.section === 'Right');
-                    setStacksHeritageLeft(leftStacks);
-                    setStacksHeritageRight(rightStacks);
-                }
-            };
-            
-            const stacks = getCurrentStacks();
-
             // Load data from Google Sheets
             const loadFromSheet = async () => {
                 try {
@@ -209,26 +143,15 @@
                     const result = await response.json();
                     
                     if (result.success) {
+                        // Update connection status regardless of whether there's data
                         setLastSync(new Date().toLocaleTimeString());
                         setConnectionStatus('connected');
                         setErrorMessage('');
                         
+                        // Only update stacks if there's actual data
                         if (result.data) {
                             isUpdatingFromSheet.current = true;
-                            
-                            // Load GTR data
-                            if (result.data.GTR) {
-                                setStacksGTR(result.data.GTR);
-                            }
-                            
-                            // Load Heritage data
-                            if (result.data.HeritageLeft) {
-                                setStacksHeritageLeft(result.data.HeritageLeft);
-                            }
-                            if (result.data.HeritageRight) {
-                                setStacksHeritageRight(result.data.HeritageRight);
-                            }
-                            
+                            setStacks(result.data);
                             setTimeout(() => {
                                 isUpdatingFromSheet.current = false;
                             }, 100);
@@ -247,7 +170,7 @@
             };
 
             // Save data to Google Sheets
-            const saveToSheet = async () => {
+            const saveToSheet = async (data) => {
                 if (isUpdatingFromSheet.current) return;
                 
                 try {
@@ -259,11 +182,7 @@
                         },
                         body: JSON.stringify({
                             action: 'saveData',
-                            data: {
-                                GTR: stacksGTR,
-                                HeritageLeft: stacksHeritageLeft,
-                                HeritageRight: stacksHeritageRight
-                            }
+                            data: data
                         })
                     });
                     
@@ -286,6 +205,7 @@
                 
                 loadFromSheet();
                 
+                // Poll for updates every 3 seconds
                 syncIntervalRef.current = setInterval(loadFromSheet, 3000);
                 
                 return () => {
@@ -298,9 +218,9 @@
             // Save when stacks change
             useEffect(() => {
                 if (!isLoading && !isUpdatingFromSheet.current && connectionStatus === 'connected') {
-                    saveToSheet();
+                    saveToSheet(stacks);
                 }
-            }, [stacksGTR, stacksHeritageLeft, stacksHeritageRight, isLoading, connectionStatus]);
+            }, [stacks, isLoading, connectionStatus]);
 
             const addPallet = () => {
                 if (!newPalletContent.trim() || !selectedStack) return;
@@ -337,7 +257,7 @@
                     return { ...s, pallets: updatedPallets };
                 });
                 
-                setCurrentStacks(updatedStacks);
+                setStacks(updatedStacks);
                 setNewPalletContent('');
                 setSelectedPosition('bottom');
                 setShowAddModal(false);
@@ -369,7 +289,7 @@
                     return { ...s, pallets: newPallets };
                 });
                 
-                setCurrentStacks(updatedStacks);
+                setStacks(updatedStacks);
                 
                 if (selectedStackView?.id === stackId) {
                     setSelectedStackView(updatedStacks.find(s => s.id === stackId));
@@ -382,7 +302,7 @@
                         ? { ...s, isBlocked: !s.isBlocked }
                         : s
                 );
-                setCurrentStacks(updatedStacks);
+                setStacks(updatedStacks);
                 
                 if (selectedStackView?.id === stackId) {
                     setSelectedStackView(updatedStacks.find(s => s.id === stackId));
@@ -395,7 +315,7 @@
                         ? { ...s, pallets: s.pallets.filter(p => p.id !== palletId) }
                         : s
                 );
-                setCurrentStacks(updatedStacks);
+                setStacks(updatedStacks);
                 
                 if (selectedStackView?.id === stackId) {
                     setSelectedStackView(updatedStacks.find(s => s.id === stackId));
@@ -422,7 +342,7 @@
                     return s;
                 });
                 
-                setCurrentStacks(updatedStacks);
+                setStacks(updatedStacks);
                 setShowMoveModal(false);
                 setPalletToMove(null);
                 
@@ -435,6 +355,7 @@
                 const fromStack = stacks.find(s => s.id === fromStackId);
                 const toStack = stacks.find(s => s.id === toStackId);
                 
+                // Check if destination has enough room
                 const totalPallets = fromStack.pallets.length + toStack.pallets.length;
                 if (totalPallets > 3) {
                     alert(`Cannot move stack: Destination would have ${totalPallets} pallets (max 3)`);
@@ -451,7 +372,37 @@
                     return s;
                 });
                 
-                setCurrentStacks(updatedStacks);
+                setStacks(updatedStacks);
+                setShowMoveStackModal(false);
+                setStackToMove(null);
+                setSelectedStackView(null);
+            };
+
+            const moveStack = (fromStackId, toStackId) => {
+                const fromStack = stacks.find(s => s.id === fromStackId);
+                const toStack = stacks.find(s => s.id === toStackId);
+                
+                if (toStack.pallets.length > 0) {
+                    alert('Destination stack must be empty to move entire stack');
+                    return;
+                }
+                
+                if (fromStack.pallets.length === 0) {
+                    alert('Source stack is empty - nothing to move');
+                    return;
+                }
+
+                const updatedStacks = stacks.map(s => {
+                    if (s.id === fromStackId) {
+                        return { ...s, pallets: [] };
+                    }
+                    if (s.id === toStackId) {
+                        return { ...s, pallets: [...fromStack.pallets] };
+                    }
+                    return s;
+                });
+                
+                setStacks(updatedStacks);
                 setShowMoveStackModal(false);
                 setStackToMove(null);
                 setSelectedStackView(null);
@@ -485,6 +436,10 @@
                 return [];
             };
 
+            const totalPallets = stacks.reduce((sum, stack) => sum + stack.pallets.length, 0);
+            const blockedStacks = stacks.filter(s => s.isBlocked).length;
+
+            // Calculate pallet summary - group by content name
             const getPalletSummary = () => {
                 const summary = {};
                 
@@ -503,20 +458,13 @@
                     });
                 });
                 
+                // Convert to array and sort by count (descending)
                 return Object.entries(summary)
                     .map(([name, data]) => ({ name, ...data }))
                     .sort((a, b) => b.count - a.count);
             };
 
             const palletSummary = getPalletSummary();
-            const totalPallets = stacks.reduce((sum, stack) => sum + stack.pallets.length, 0);
-            const blockedStacks = stacks.filter(s => s.isBlocked).length;
-
-            const getConnectionStatusColor = () => {
-                if (connectionStatus === 'connected') return 'bg-green-600';
-                if (connectionStatus === 'error') return 'bg-red-600';
-                return 'bg-yellow-600';
-            };
 
             if (isLoading) {
                 return (
@@ -527,7 +475,7 @@
                             {errorMessage && (
                                 <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg text-left">
                                     <p className="text-red-800 font-semibold mb-2">{errorMessage}</p>
-                                    <p className="text-sm text-red-600">See the setup instructions.</p>
+                                    <p className="text-sm text-red-600">See the GOOGLE-SHEETS-SETUP.md file for instructions.</p>
                                 </div>
                             )}
                         </div>
@@ -535,196 +483,17 @@
                 );
             }
 
-            // Render GTR Grid
-            const renderGTRGrid = () => (
-                <div className="bg-white rounded-lg shadow-md p-4 mb-6">
-                    <div className="overflow-x-auto">
-                        <div className="flex mb-2">
-                            <div className="w-8 flex-shrink-0"></div>
-                            {Array(20).fill(null).map((_, i) => (
-                                <div key={i} className="w-14 flex-shrink-0 mx-0.5 text-center text-xs font-bold text-slate-600">
-                                    Row {i + 1}
-                                </div>
-                            ))}
-                        </div>
-                        
-                        {Array(10).fill(null).map((_, rowIdx) => (
-                            <div key={rowIdx} className="flex mb-2">
-                                <div className="w-8 flex-shrink-0 flex items-center justify-center text-xs font-bold text-slate-600">
-                                    Pos {rowIdx + 1}
-                                </div>
-                                
-                                {stacksGTR.filter(s => s.pos === rowIdx + 1).map(stack => (
-                                    <div
-                                        key={stack.id}
-                                        className={`w-14 h-18 flex-shrink-0 mx-0.5 rounded border-2 ${getStackColor(stack)} transition-all hover:shadow-lg relative group cursor-pointer`}
-                                        onClick={() => setSelectedStackView(stack)}
-                                    >
-                                        {stack.isBlocked ? (
-                                            <div className="flex flex-col items-center justify-center h-full text-red-600">
-                                                <Lock size={14} />
-                                                <span className="text-[8px] font-bold mt-0.5">BLOCKED</span>
-                                            </div>
-                                        ) : (
-                                            <div className="flex flex-col h-full p-1">
-                                                <div className="flex justify-between items-center mb-1">
-                                                    <span className="text-[8px] font-bold text-slate-700">{stack.pallets.length}/3</span>
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            toggleBlock(stack.id);
-                                                        }}
-                                                        className="p-0.5 rounded bg-slate-100 hover:bg-slate-200 opacity-0 group-hover:opacity-100 transition-opacity"
-                                                    >
-                                                        <Unlock size={8} />
-                                                    </button>
-                                                </div>
-                                                
-                                                <div className="flex-1 flex flex-col-reverse gap-0.5">
-                                                    {stack.pallets.map((pallet, idx) => (
-                                                        <div
-                                                            key={pallet.id}
-                                                            className="bg-blue-500 rounded-sm h-4 flex items-center justify-center cursor-pointer hover:bg-blue-600 px-0.5"
-                                                            title={`${getStackPosition(idx, stack.pallets.length)}: ${pallet.content}`}
-                                                        >
-                                                            <span className="text-[8px] text-white font-bold truncate w-full text-center">
-                                                                {pallet.content.substring(0, 7)}
-                                                            </span>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                                
-                                                {stack.pallets.length < 3 && (
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            setSelectedStack(stack.id);
-                                                            setSelectedPosition('bottom');
-                                                            setShowAddModal(true);
-                                                        }}
-                                                        className="w-full mt-1 bg-blue-600 hover:bg-blue-700 text-white py-0.5 rounded text-[8px] opacity-0 group-hover:opacity-100 transition-opacity"
-                                                    >
-                                                        +
-                                                    </button>
-                                                )}
-                                            </div>
-                                        )}
-                                        
-                                        <div className="absolute -top-6 left-1/2 transform -translate-x-1/2 bg-slate-800 text-white text-[9px] px-2 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-10">
-                                            {stack.name}
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            );
-
-            // Render Heritage Grid (two sections side by side)
-            const renderHeritageGrid = () => {
-                const renderSection = (sectionStacks, maxRows, label) => (
-                    <div className="flex-1">
-                        <h3 className="text-center font-bold text-slate-700 mb-3">{label}</h3>
-                        <div className="overflow-x-auto">
-                            <div className="flex mb-2">
-                                <div className="w-8 flex-shrink-0"></div>
-                                {Array(sectionStacks.filter(s => s.row === 1).length).fill(null).map((_, i) => (
-                                    <div key={i} className="w-14 flex-shrink-0 mx-0.5 text-center text-xs font-bold text-slate-600">
-                                        Pos {i + 1}
-                                    </div>
-                                ))}
-                            </div>
-                            
-                            {Array(maxRows).fill(null).map((_, rowIdx) => (
-                                <div key={rowIdx} className="flex mb-2">
-                                    <div className="w-8 flex-shrink-0 flex items-center justify-center text-xs font-bold text-slate-600">
-                                        R{rowIdx + 1}
-                                    </div>
-                                    
-                                    {sectionStacks.filter(s => s.row === rowIdx + 1).map(stack => (
-                                        <div
-                                            key={stack.id}
-                                            className={`w-14 h-18 flex-shrink-0 mx-0.5 rounded border-2 ${getStackColor(stack)} transition-all hover:shadow-lg relative group cursor-pointer`}
-                                            onClick={() => setSelectedStackView(stack)}
-                                        >
-                                            {stack.isBlocked ? (
-                                                <div className="flex flex-col items-center justify-center h-full text-red-600">
-                                                    <Lock size={14} />
-                                                    <span className="text-[8px] font-bold mt-0.5">BLOCKED</span>
-                                                </div>
-                                            ) : (
-                                                <div className="flex flex-col h-full p-1">
-                                                    <div className="flex justify-between items-center mb-1">
-                                                        <span className="text-[8px] font-bold text-slate-700">{stack.pallets.length}/3</span>
-                                                        <button
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                toggleBlock(stack.id);
-                                                            }}
-                                                            className="p-0.5 rounded bg-slate-100 hover:bg-slate-200 opacity-0 group-hover:opacity-100 transition-opacity"
-                                                        >
-                                                            <Unlock size={8} />
-                                                        </button>
-                                                    </div>
-                                                    
-                                                    <div className="flex-1 flex flex-col-reverse gap-0.5">
-                                                        {stack.pallets.map((pallet, idx) => (
-                                                            <div
-                                                                key={pallet.id}
-                                                                className="bg-blue-500 rounded-sm h-4 flex items-center justify-center cursor-pointer hover:bg-blue-600 px-0.5"
-                                                                title={`${getStackPosition(idx, stack.pallets.length)}: ${pallet.content}`}
-                                                            >
-                                                                <span className="text-[8px] text-white font-bold truncate w-full text-center">
-                                                                    {pallet.content.substring(0, 7)}
-                                                                </span>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                    
-                                                    {stack.pallets.length < 3 && (
-                                                        <button
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                setSelectedStack(stack.id);
-                                                                setSelectedPosition('bottom');
-                                                                setShowAddModal(true);
-                                                            }}
-                                                            className="w-full mt-1 bg-blue-600 hover:bg-blue-700 text-white py-0.5 rounded text-[8px] opacity-0 group-hover:opacity-100 transition-opacity"
-                                                        >
-                                                            +
-                                                        </button>
-                                                    )}
-                                                </div>
-                                            )}
-                                            
-                                            <div className="absolute -top-6 left-1/2 transform -translate-x-1/2 bg-slate-800 text-white text-[9px] px-2 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-10">
-                                                {stack.name}
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                );
-
-                return (
-                    <div className="bg-white rounded-lg shadow-md p-4 mb-6">
-                        <div className="flex gap-8">
-                            {renderSection(stacksHeritageLeft, 20, "Left Section (20 rows × 6 pos)")}
-                            {renderSection(stacksHeritageRight, 31, "Right Section (31 rows × 8 pos)")}
-                        </div>
-                    </div>
-                );
+            const getConnectionStatusColor = () => {
+                if (connectionStatus === 'connected') return 'bg-green-600';
+                if (connectionStatus === 'error') return 'bg-red-600';
+                return 'bg-yellow-600';
             };
 
             return (
                 <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4">
                     <div className="max-w-[1400px] mx-auto">
-                        {/* Header with Layout Tabs */}
                         <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-                            <div className="flex justify-between items-center mb-4">
+                            <div className="flex justify-between items-center">
                                 <div>
                                     <h1 className="text-3xl font-bold text-slate-800 flex items-center gap-2">
                                         <Package className="text-blue-600" />
@@ -739,52 +508,128 @@
                                             {connectionStatus === 'connected' ? `Synced with Google Sheets at ${lastSync}` : 'Reconnecting...'}
                                         </p>
                                     )}
+                                    <p className="text-xs text-blue-600 mt-1">
+                                        📊 Open your Google Sheet to see/export all data
+                                    </p>
                                 </div>
-                                <button
-                                    onClick={() => setShowSummary(true)}
-                                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors font-semibold"
-                                >
-                                    <BarChart3 size={20} />
-                                    Inventory Summary
-                                </button>
-                            </div>
-
-                            {/* Layout Tabs */}
-                            <div className="flex gap-2 border-b border-slate-200">
-                                <button
-                                    onClick={() => {
-                                        setCurrentLayout('GTR');
-                                        setSelectedStackView(null);
-                                    }}
-                                    className={`px-6 py-3 font-semibold transition-all ${
-                                        currentLayout === 'GTR'
-                                            ? 'text-blue-600 border-b-2 border-blue-600'
-                                            : 'text-slate-600 hover:text-slate-800'
-                                    }`}
-                                >
-                                    GTR Warehouse
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        setCurrentLayout('Heritage');
-                                        setSelectedStackView(null);
-                                    }}
-                                    className={`px-6 py-3 font-semibold transition-all ${
-                                        currentLayout === 'Heritage'
-                                            ? 'text-blue-600 border-b-2 border-blue-600'
-                                            : 'text-slate-600 hover:text-slate-800'
-                                    }`}
-                                >
-                                    Heritage Warehouse
-                                </button>
+                                <div className="flex items-center gap-4">
+                                    <button
+                                        onClick={() => setShowSummary(true)}
+                                        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors font-semibold"
+                                    >
+                                        <BarChart3 size={20} />
+                                        Inventory Summary
+                                    </button>
+                                    <div className="text-right">
+                                        <div className="text-sm text-slate-600 space-y-1">
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-4 h-4 bg-green-50 border-2 border-green-400 rounded"></div>
+                                                <span>1 pallet</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-4 h-4 bg-yellow-50 border-2 border-yellow-400 rounded"></div>
+                                                <span>2 pallets</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-4 h-4 bg-orange-50 border-2 border-orange-400 rounded"></div>
+                                                <span>3 pallets (FULL)</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-4 h-4 bg-red-100 border-2 border-red-400 rounded"></div>
+                                                <span>Blocked</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
-                        {/* Render appropriate grid */}
-                        {currentLayout === 'GTR' ? renderGTRGrid() : renderHeritageGrid()}
+                        <div className="bg-white rounded-lg shadow-md p-4 mb-6">
+                            <div className="overflow-x-auto">
+                                <div className="flex mb-2">
+                                    <div className="w-8 flex-shrink-0"></div>
+                                    {Array(COLS).fill(null).map((_, i) => (
+                                        <div key={i} className="w-14 flex-shrink-0 mx-0.5 text-center text-xs font-bold text-slate-600">
+                                            Row {i + 1}
+                                        </div>
+                                    ))}
+                                </div>
+                                
+                                {Array(ROWS).fill(null).map((_, rowIndex) => (
+                                    <div key={rowIndex} className="flex mb-2">
+                                        <div className="w-8 flex-shrink-0 flex items-center justify-center text-xs font-bold text-slate-600">
+                                            Pos {rowIndex + 1}
+                                        </div>
+                                        
+                                        {stacks.filter(s => s.row === rowIndex + 1).map(stack => (
+                                            <div
+                                                key={stack.id}
+                                                className={`w-14 h-18 flex-shrink-0 mx-0.5 rounded border-2 ${getStackColor(stack)} transition-all hover:shadow-lg relative group cursor-pointer`}
+                                                onClick={() => setSelectedStackView(stack)}
+                                            >
+                                                {stack.isBlocked ? (
+                                                    <div className="flex flex-col items-center justify-center h-full text-red-600">
+                                                        <Lock size={14} />
+                                                        <span className="text-[8px] font-bold mt-0.5">BLOCKED</span>
+                                                    </div>
+                                                ) : (
+                                                    <div className="flex flex-col h-full p-1">
+                                                        <div className="flex justify-between items-center mb-1">
+                                                            <span className="text-[8px] font-bold text-slate-700">{stack.pallets.length}/3</span>
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    toggleBlock(stack.id);
+                                                                }}
+                                                                className="p-0.5 rounded bg-slate-100 hover:bg-slate-200 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                            >
+                                                                <Unlock size={8} />
+                                                            </button>
+                                                        </div>
+                                                        
+                                                        <div className="flex-1 flex flex-col-reverse gap-0.5">
+                                                            {stack.pallets.map((pallet, idx) => (
+                                                                <div
+                                                                    key={pallet.id}
+                                                                    className="bg-blue-500 rounded-sm h-4 flex items-center justify-center cursor-pointer hover:bg-blue-600 px-0.5"
+                                                                    title={`${getStackPosition(idx, stack.pallets.length)}: ${pallet.content}`}
+                                                                    onClick={() => setSelectedStackView(stack)}
+                                                                >
+                                                                    <span className="text-[8px] text-white font-bold truncate w-full text-center">
+                                                                        {pallet.content.substring(0, 7)}
+                                                                    </span>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                        
+                                                        {stack.pallets.length < 3 && (
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    setSelectedStack(stack.id);
+                                                                    setSelectedPosition('bottom');
+                                                                    setShowAddModal(true);
+                                                                }}
+                                                                className="w-full mt-1 bg-blue-600 hover:bg-blue-700 text-white py-0.5 rounded text-[8px] opacity-0 group-hover:opacity-100 transition-opacity"
+                                                            >
+                                                                +
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                )}
+                                                
+                                                <div className="absolute -top-6 left-1/2 transform -translate-x-1/2 bg-slate-800 text-white text-[10px] px-2 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-10">
+                                                    {stack.name}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
                     </div>
 
-                    {/* Summary Panel */}
+                    {/* Inventory Summary Panel */}
                     {showSummary && (
                         <div className="fixed top-0 left-0 h-full w-96 bg-white shadow-2xl z-50 overflow-y-auto border-r-4 border-green-600">
                             <div className="p-6">
@@ -805,7 +650,6 @@
                                     <div className="bg-gradient-to-r from-green-50 to-blue-50 p-4 rounded-lg border border-green-200">
                                         <p className="text-sm text-slate-600 mb-1">Total Unique Items</p>
                                         <p className="text-3xl font-bold text-slate-800">{palletSummary.length}</p>
-                                        <p className="text-xs text-slate-500 mt-1">{currentLayout} Warehouse</p>
                                     </div>
                                 </div>
 
@@ -846,11 +690,22 @@
                                         ))
                                     )}
                                 </div>
+
+                                {palletSummary.length > 0 && (
+                                    <div className="mt-6 p-4 bg-slate-50 rounded-lg border border-slate-200">
+                                        <p className="text-sm text-slate-600 mb-2">
+                                            💡 <strong>Tip:</strong> Click "View locations" to see where each item is stored
+                                        </p>
+                                        <p className="text-xs text-slate-500">
+                                            This summary updates in real-time as you add or remove pallets
+                                        </p>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     )}
 
-                    {/* Detail Panel - continued in next part... */}
+                    {/* Detail Panel - Same as before */}
                     {selectedStackView && (
                         <div className="fixed top-0 right-0 h-full w-96 bg-white shadow-2xl z-50 overflow-y-auto border-l-4 border-blue-600">
                             <div className="p-6">
@@ -867,7 +722,7 @@
                                 <div className="mb-6">
                                     <div className="flex items-center gap-2 text-sm text-slate-600 mb-2">
                                         <span className="font-semibold">Position:</span>
-                                        <span>Row {selectedStackView.row}, {selectedStackView.section ? `${selectedStackView.section} Section,` : ''} Pos {selectedStackView.pos}</span>
+                                        <span>Row {selectedStackView.row}, Column {selectedStackView.col}</span>
                                     </div>
                                     <div className="flex items-center gap-2 text-sm text-slate-600">
                                         <span className="font-semibold">Capacity:</span>
@@ -982,7 +837,7 @@
                         </div>
                     )}
 
-                    {/* Add Pallet Modal */}
+                    {/* Add Modal - Same as before */}
                     {showAddModal && (
                         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
                             <div className="bg-white rounded-lg p-6 max-w-md w-full">
@@ -1024,6 +879,9 @@
                                                 </button>
                                             ))}
                                         </div>
+                                        <p className="text-xs text-slate-500 mt-2">
+                                            Select where in the stack to place this pallet
+                                        </p>
                                     </div>
                                     
                                     <div className="flex gap-2">
@@ -1049,7 +907,7 @@
                         </div>
                     )}
 
-                    {/* Move Pallet Modal */}
+                    {/* Move Modal - Same as before */}
                     {showMoveModal && palletToMove && (
                         <div 
                             className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[60]"
@@ -1092,7 +950,7 @@
                                             >
                                                 <div className="font-bold text-slate-700 text-sm">{stack.name}</div>
                                                 <div className="text-xs text-slate-500 mt-1">
-                                                    Row {stack.row}, {stack.section ? `${stack.section},` : ''} Pos {stack.pos}
+                                                    Row {stack.row}, Col {stack.col}
                                                 </div>
                                                 <div className="text-xs text-slate-600 font-semibold mt-1">
                                                     {stack.pallets.length}/3 pallets
@@ -1166,15 +1024,29 @@
                                                 >
                                                     <div className="font-bold text-slate-700 text-sm">{stack.name}</div>
                                                     <div className="text-xs text-slate-500 mt-1">
-                                                        Row {stack.row}, {stack.section ? `${stack.section},` : ''} Pos {stack.pos}
+                                                        Row {stack.row}, Col {stack.col}
                                                     </div>
                                                     <div className="text-xs text-green-600 font-semibold mt-1">
-                                                        {stack.pallets.length === 0 ? '✓ Empty' : `${stack.pallets.length} → ${stack.pallets.length + sourcePalletCount} total`}
+                                                        {stack.pallets.length === 0 ? '✓ Empty' : `${stack.pallets.length} pallets → ${stack.pallets.length + sourcePalletCount} total`}
                                                     </div>
                                                 </button>
                                             ));
                                         })()}
                                     </div>
+                                    {(() => {
+                                        const sourceStack = stacks.find(s => s.id === stackToMove);
+                                        const sourcePalletCount = sourceStack?.pallets.length || 0;
+                                        const availableStacks = stacks.filter(s => {
+                                            const hasRoom = (s.pallets.length + sourcePalletCount) <= 3;
+                                            return hasRoom && s.id !== stackToMove && !s.isBlocked;
+                                        });
+                                        return availableStacks.length === 0 ? (
+                                            <div className="text-center py-12">
+                                                <p className="text-slate-500 mb-2">No stacks with enough space available</p>
+                                                <p className="text-sm text-slate-400">Need a stack with room for {sourcePalletCount} more pallets</p>
+                                            </div>
+                                        ) : null;
+                                    })()}
                                 </div>
                                 
                                 <div className="p-4 border-t border-slate-200 flex-shrink-0">
